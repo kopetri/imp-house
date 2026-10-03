@@ -1,0 +1,16 @@
+services:
+  imp-house:
+    build: .
+    image: imp-house:latest
+    container_name: imp-house
+    restart: unless-stopped
+    user: "${PUID:-1026}:${PGID:-100}"
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      TZ: ${TZ:-Europe/Berlin}
+      CAMERA_URL: ${CAMERA_URL:-http://192.168.178.94:81/stream}
+    volumes:
+      - ${DATA_PATH:-/volume1/imp-house}:/data

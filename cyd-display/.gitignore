@@ -1,0 +1,7 @@
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+include/secrets.h
+include/device_config.h
