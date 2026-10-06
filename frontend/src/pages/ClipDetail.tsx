@@ -31,9 +31,9 @@ export default function ClipDetail() {
   if (error) return <p className="error">{error}</p>
   if (!clip) return <p className="muted">Loading…</p>
 
-  const augment = async () => {
+  const process = async () => {
     try {
-      setClip(await api<Clip>(`/api/clips/${clip.id}/augment`, { method: 'POST' }))
+      setClip(await api<Clip>(`/api/clips/${clip.id}/process`, { method: 'POST' }))
       setError(null)
     } catch (err) {
       window.alert((err as Error).message)
@@ -54,18 +54,36 @@ export default function ClipDetail() {
     <>
       <h1>{formatDate(clip.recorded_at)}</h1>
       <div className="videos">
-        <div>
-          <h2>Original</h2>
-          <video src={`/api/clips/${clip.id}/original.mp4`} controls loop playsInline />
-        </div>
-        <div>
-          <h2>Augmented</h2>
-          {clip.has_augmented ? (
+        {clip.has_snapshot && (
+          <div>
+            <h2>Snapshot</h2>
+            <img className="clip-preview" src={`/api/clips/${clip.id}/snapshot.jpg`} alt="Captured snapshot" />
+          </div>
+        )}
+        {clip.has_mask && (
+          <div>
+            <h2>Inpainting mask</h2>
+            <img className="clip-preview" src={`/api/clips/${clip.id}/mask.png`} alt="Generated inpainting mask" />
+          </div>
+        )}
+        {clip.has_reference && (
+          <div>
+            <h2>Reference image</h2>
+            <img className="clip-preview" src={`/api/clips/${clip.id}/reference.jpg`} alt="Generated reference image" />
+          </div>
+        )}
+        {clip.has_original && (
+          <div>
+            <h2>Archived source video</h2>
+            <video src={`/api/clips/${clip.id}/original.mp4`} controls loop playsInline />
+          </div>
+        )}
+        {clip.has_augmented && (
+          <div>
+            <h2>Generated video</h2>
             <video src={`/api/clips/${clip.id}/augmented.mp4`} controls loop playsInline />
-          ) : (
-            <p className="muted">Not available yet.</p>
-          )}
-        </div>
+          </div>
+        )}
       </div>
       <div className="panel" style={{ marginTop: '1rem' }}>
         <table>
@@ -74,6 +92,7 @@ export default function ClipDetail() {
               <th>Status</th>
               <td>
                 <span className={`badge ${clip.status}`}>{clip.status}</span> (attempts: {clip.attempts})
+                {clip.processing_stage && ` · ${clip.processing_stage}`}
               </td>
             </tr>
             <tr>
@@ -81,15 +100,15 @@ export default function ClipDetail() {
               <td>{clip.duration_seconds.toFixed(1)}s</td>
             </tr>
             <tr>
-              <th>Prompt</th>
+              <th>Character description</th>
               <td>
                 <strong>{clip.prompt_name ?? '—'}</strong>
                 {clip.prompt_text && <pre className="prompt">{clip.prompt_text}</pre>}
               </td>
             </tr>
             <tr>
-              <th>Model</th>
-              <td>{clip.model ?? '—'}</td>
+              <th>Scene/action</th>
+              <td>{clip.scene_prompt ?? '—'}</td>
             </tr>
             {clip.error && (
               <tr>
@@ -101,9 +120,11 @@ export default function ClipDetail() {
         </table>
         {user?.is_admin && (
           <div className="row" style={{ marginTop: '1rem' }}>
-            <button onClick={augment} disabled={busy}>
-              Augment with active prompt
-            </button>
+            {clip.has_snapshot && (
+              <button onClick={process} disabled={busy}>
+                Generate reference and video
+              </button>
+            )}
             <button className="danger" onClick={remove} disabled={clip.status === 'processing'}>
               Delete
             </button>

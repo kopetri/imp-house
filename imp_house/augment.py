@@ -1,14 +1,20 @@
+import base64
+import mimetypes
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlparse
 
-import base64
-
 import httpx
 
-_VIDEO_DATA_URI_PREFIX = "data:video/mp4;base64,"
-_MAX_VIDEO_DATA_URI_LENGTH = 5 * 1024 * 1024
+GEMINI_MODEL = "google/gemini-2.5-flash:37fd5e5ec0769f0bbe58ec8248418fc570778813444b508b226a25cb04679d07"
+FLUX_FILL_MODEL = (
+    "black-forest-labs/flux-fill-pro:41c767bcbfffe54ef8f05eb4d0100f9314790f7fc43a7b88d73ec06839deddb9"
+)
+SEEDANCE_MODEL = "bytedance/seedance-2.0:a6dcbae88b153e75fcccabacfb0eb430ab5be0a7ae27b316fc6f983658b349bc"
+_PINNED_MODEL_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]*/[a-z0-9][a-z0-9_.-]*:[a-f0-9]{64}$")
+_MAX_IMAGE_DATA_URI_LENGTH = 10 * 1024 * 1024
 
 
 class AugmentError(RuntimeError):
@@ -18,12 +24,12 @@ class AugmentError(RuntimeError):
 @dataclass
 class JobState:
     status: str  # pending | succeeded | failed
-    output_url: str | None = None
+    output: Any = None
     error: str | None = None
 
 
-class VideoAugmenter(Protocol):
-    async def submit(self, video: Path, model: str, inputs: dict[str, Any], video_key: str) -> str: ...
+class PredictionClient(Protocol):
+    async def submit(self, model: str, inputs: dict[str, Any]) -> str: ...
 
     async def poll(self, job_id: str) -> JobState: ...
 
@@ -51,17 +57,11 @@ class ReplicateAugmenter:
         await self._client.aclose()
         await self._download_client.aclose()
 
-    async def submit(self, video: Path, model: str, inputs: dict[str, Any], video_key: str) -> str:
-        video_uri = _video_data_uri(video)
-        payload: dict[str, Any] = {"input": {**inputs, video_key: video_uri}}
-        if ":" in model:
-            payload["version"] = model.split(":", 1)[1]
-            response = await self._client.post("/predictions", json=payload)
-        else:
-            owner, _, name = model.partition("/")
-            if not owner or not name:
-                raise AugmentError(f"Invalid model identifier: {model!r}")
-            response = await self._client.post(f"/models/{owner}/{name}/predictions", json=payload)
+    async def submit(self, model: str, inputs: dict[str, Any]) -> str:
+        if not _PINNED_MODEL_PATTERN.fullmatch(model):
+            raise AugmentError(f"Model must use a pinned Replicate version: {model!r}")
+        payload = {"version": model.rsplit(":", 1)[1], "input": inputs}
+        response = await self._client.post("/predictions", json=payload)
         if response.status_code in (400, 404, 422):
             raise AugmentError(f"Replicate rejected prediction: {_detail(response)}")
         response.raise_for_status()
@@ -73,10 +73,10 @@ class ReplicateAugmenter:
         body = response.json()
         status = body.get("status")
         if status == "succeeded":
-            url = _first_url(body.get("output"))
-            if not url:
-                return JobState("failed", error="Prediction succeeded without a video output")
-            return JobState("succeeded", output_url=url)
+            output = body.get("output")
+            if output is None:
+                return JobState("failed", error="Prediction succeeded without an output")
+            return JobState("succeeded", output=output)
         if status in ("failed", "canceled", "aborted"):
             return JobState("failed", error=str(body.get("error") or status)[:1000])
         return JobState("pending")
@@ -92,15 +92,6 @@ class ReplicateAugmenter:
                     handle.write(chunk)
         tmp.replace(destination)
 
-def _first_url(output: Any) -> str | None:
-    if isinstance(output, str):
-        return output
-    if isinstance(output, list):
-        return next((item for item in output if isinstance(item, str)), None)
-    if isinstance(output, dict):
-        return next((value for value in output.values() if isinstance(value, str)), None)
-    return None
-
 
 def _detail(response: httpx.Response) -> str:
     try:
@@ -109,12 +100,13 @@ def _detail(response: httpx.Response) -> str:
         return response.text[:500]
 
 
-def _video_data_uri(video: Path) -> str:
-    encoded_length = 4 * ((video.stat().st_size + 2) // 3)
-    if len(_VIDEO_DATA_URI_PREFIX) + encoded_length > _MAX_VIDEO_DATA_URI_LENGTH:
-        raise AugmentError(
-            "Video exceeds Runway's 5 MiB data URI limit; use a shorter clip or a public HTTPS URL "
-            "that returns Content-Type: video/mp4."
-        )
-    encoded = base64.b64encode(video.read_bytes()).decode("ascii")
-    return f"{_VIDEO_DATA_URI_PREFIX}{encoded}"
+def image_data_uri(image: Path) -> str:
+    content_type, _ = mimetypes.guess_type(image.name)
+    if content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise AugmentError(f"Unsupported image type for Replicate input: {image.suffix or '(none)'}")
+    encoded_length = 4 * ((image.stat().st_size + 2) // 3)
+    prefix = f"data:{content_type};base64,"
+    if len(prefix) + encoded_length > _MAX_IMAGE_DATA_URI_LENGTH:
+        raise AugmentError("Image exceeds the application's 10 MiB data URI limit")
+    encoded = base64.b64encode(image.read_bytes()).decode("ascii")
+    return f"{prefix}{encoded}"

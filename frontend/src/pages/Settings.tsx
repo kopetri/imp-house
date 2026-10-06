@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { api, isAbort, type RecordingSettings } from '../api'
 import { useAuth } from '../auth'
 
-const withSeconds = (value: string) => (value.length === 5 ? `${value}:00` : value)
+const asTime = (value: string) => (value.length === 5 ? `${value}:00` : value)
 
 export default function Settings() {
   const { user } = useAuth()
@@ -28,7 +28,7 @@ export default function Settings() {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     try {
-      const body = { ...form, window_start: withSeconds(form.window_start), window_end: withSeconds(form.window_end) }
+      const body = { ...form, window_start: asTime(form.window_start), window_end: asTime(form.window_end) }
       setForm(await api<RecordingSettings>('/api/settings', { method: 'PUT', body }))
       setMessage({ ok: true, text: "Saved. Today's remaining recordings were re-planned." })
     } catch (err) {
@@ -67,16 +67,6 @@ export default function Settings() {
                 value={form.window_end}
                 onChange={(e) => setForm({ ...form, window_end: e.target.value })}
               />
-            </label>
-          </div>
-          <div className="row">
-            <label>
-              Min clip length (s)
-              <input type="number" min={3} max={60} value={form.min_seconds} onChange={number('min_seconds')} />
-            </label>
-            <label>
-              Max clip length (s)
-              <input type="number" min={3} max={60} value={form.max_seconds} onChange={number('max_seconds')} />
             </label>
           </div>
           {!readOnly && <button>Save</button>}

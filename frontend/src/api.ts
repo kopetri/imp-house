@@ -16,10 +16,6 @@ export interface Device {
 export interface PromptInput {
   name: string
   text: string
-  model: string
-  video_input_key: string
-  prompt_input_key: string
-  extra_input: Record<string, unknown>
 }
 
 export interface Prompt extends PromptInput {
@@ -34,8 +30,6 @@ export interface RecordingSettings {
   clips_per_day: number
   window_start: string
   window_end: string
-  min_seconds: number
-  max_seconds: number
 }
 
 export type ClipStatus = 'recorded' | 'queued' | 'processing' | 'done' | 'failed'
@@ -50,14 +44,19 @@ export interface Clip {
   model: string | null
   attempts: number
   error: string | null
+  has_snapshot: boolean
+  has_original: boolean
+  has_mask: boolean
+  has_reference: boolean
   has_augmented: boolean
+  scene_prompt: string | null
+  processing_stage: string | null
   playback_frames: number | null
 }
 
 export interface ScheduledRecording {
   id: number
   scheduled_at: string
-  duration_seconds: number
   status: 'pending' | 'done' | 'failed'
   clip_id: string | null
   error: string | null

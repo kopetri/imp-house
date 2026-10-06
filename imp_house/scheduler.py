@@ -28,8 +28,6 @@ async def get_recording_settings(session: AsyncSession) -> RecordingSettings:
             clips_per_day=3,
             window_start=time(8, 0),
             window_end=time(20, 0),
-            min_seconds=10,
-            max_seconds=20,
         )
         session.add(settings)
         await session.flush()
@@ -43,20 +41,15 @@ def plan_times(
     now: datetime,
     count: int,
     rng: random.Random,
-) -> list[tuple[datetime, int]]:
+) -> list[datetime]:
     window_start = datetime.combine(plan_date, settings.window_start, tzinfo=tz)
-    window_end = datetime.combine(plan_date, settings.window_end, tzinfo=tz) - timedelta(
-        seconds=settings.max_seconds
-    )
+    window_end = datetime.combine(plan_date, settings.window_end, tzinfo=tz)
     start = max(window_start, now)
     if count <= 0 or window_end <= start:
         return []
     span = (window_end - start).total_seconds()
     offsets = sorted(rng.uniform(0, span) for _ in range(count))
-    return [
-        (start + timedelta(seconds=offset), rng.randint(settings.min_seconds, settings.max_seconds))
-        for offset in offsets
-    ]
+    return [start + timedelta(seconds=offset) for offset in offsets]
 
 
 class RecordingScheduler:
@@ -129,7 +122,7 @@ class RecordingScheduler:
                 await self._finish(entry.id, ScheduleStatus.FAILED, None, "missed" if enabled else "disabled")
                 continue
             try:
-                clip = await self.record_now(entry.duration_seconds)
+                clip = await self.record_now()
             except Exception as exc:
                 log.warning("Scheduled recording failed: %s", exc)
                 await self._finish(entry.id, ScheduleStatus.FAILED, None, str(exc)[:500])
@@ -155,22 +148,19 @@ class RecordingScheduler:
                 await self._add_plan(session, settings, today, now, settings.clips_per_day - (used or 0))
             await session.commit()
 
-    async def record_now(self, duration_seconds: float) -> Clip:
+    async def record_now(self) -> Clip:
         async with self._record_lock, self._sessionmaker() as session:
-            return await record_clip(
-                self._hub, session, self._data_dir, duration_seconds, datetime.now(self._tz)
-            )
+            return await record_clip(self._hub, session, self._data_dir, datetime.now(self._tz))
 
     async def _add_plan(
         self, session: AsyncSession, settings: RecordingSettings, day: date, now: datetime, count: int
     ) -> None:
         times = plan_times(settings, day, self._tz, now, count, self._rng)
-        for scheduled_at, duration in times:
+        for scheduled_at in times:
             session.add(
                 ScheduledRecording(
                     plan_date=day,
                     scheduled_at=scheduled_at,
-                    duration_seconds=duration,
                     status=ScheduleStatus.PENDING,
                 )
             )

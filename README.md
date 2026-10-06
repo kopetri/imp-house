@@ -1,10 +1,18 @@
 # imp-house
 
-Home-camera relay and clip archive. The FastAPI service is the camera's only
-MJPEG client; it relays live video to the browser and CYD, records scheduled
-clips, submits them to Replicate, and serves the augmented videos. The React
-single-page app is built into the same Docker image. Clip files live under
+Home-camera relay and snapshot-based character video generation. The FastAPI
+service is the camera's only MJPEG client; it relays live video to the browser
+and CYD, captures scheduled snapshots, and processes each snapshot through
+Gemini scene analysis, FLUX Fill reference-image generation, and silent Seedance
+video generation. Generated MP4s are transcoded to MJPEG for CYD playback. The
+React single-page app is built into the same Docker image. Media lives under
 `/data`; PostgreSQL is external.
+
+Prompts contain only the character's visual description. Gemini chooses a
+placement box and writes an action grounded in the captured room image; the app
+turns that box into a feathered inpainting mask. Seedance generates a five-second
+720p clip from the FLUX reference image. Existing video captures and their files
+remain available as archived, read-only clips and are not reprocessed.
 
 ## Local development
 

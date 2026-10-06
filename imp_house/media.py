@@ -33,35 +33,6 @@ async def _ffmpeg(args: list[str], stdin: bytes | None = None) -> None:
         raise MediaError(f"ffmpeg failed ({process.returncode}): {stderr.decode(errors='replace')[-500:]}")
 
 
-async def encode_jpegs_to_mp4(frames: list[bytes], fps: float, output: Path) -> None:
-    await _ffmpeg(
-        [
-            "-f",
-            "image2pipe",
-            "-framerate",
-            f"{fps:.3f}",
-            "-c:v",
-            "mjpeg",
-            "-i",
-            "-",
-            "-vf",
-            "pad=ceil(iw/2)*2:ceil(ih/2)*2",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "20",
-            "-pix_fmt",
-            "yuv420p",
-            "-movflags",
-            "+faststart",
-            str(output),
-        ],
-        stdin=b"".join(frames),
-    )
-
-
 async def transcode_to_playback(source: Path, output: Path) -> tuple[float, int]:
     attempts = [
         *((PLAYBACK_WIDTH, PLAYBACK_HEIGHT, quality) for quality in (6, 12, 18, 24, 30)),

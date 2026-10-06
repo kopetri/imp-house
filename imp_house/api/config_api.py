@@ -1,5 +1,4 @@
 from datetime import datetime, time
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, model_validator
@@ -13,18 +12,11 @@ from imp_house.scheduler import get_recording_settings
 prompts_router = APIRouter(prefix="/api/prompts", tags=["prompts"])
 settings_router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-DEFAULT_MODEL = "runwayml/gen4-aleph"
-_MODEL_PATTERN = r"^[a-z0-9][a-z0-9_.-]*/[a-z0-9][a-z0-9_.-]*(:[a-f0-9]{64})?$"
-_KEY_PATTERN = r"^[A-Za-z_][A-Za-z0-9_]*$"
-
-
 class PromptIn(BaseModel):
+    model_config = {"extra": "forbid"}
+
     name: str = Field(min_length=1, max_length=100)
     text: str = Field(min_length=1, max_length=4000)
-    model: str = Field(default=DEFAULT_MODEL, max_length=200, pattern=_MODEL_PATTERN)
-    video_input_key: str = Field(default="video", max_length=50, pattern=_KEY_PATTERN)
-    prompt_input_key: str = Field(default="prompt", max_length=50, pattern=_KEY_PATTERN)
-    extra_input: dict[str, Any] = Field(default_factory=dict)
 
 
 class PromptOut(PromptIn):
@@ -33,7 +25,7 @@ class PromptOut(PromptIn):
     created_at: datetime
     updated_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "extra": "forbid"}
 
 
 async def _get_prompt(session: AsyncSession, prompt_id: int) -> Prompt:
@@ -109,24 +101,22 @@ async def deactivate_prompt(
 
 
 class SettingsIn(BaseModel):
+    model_config = {"extra": "forbid"}
+
     enabled: bool
     clips_per_day: int = Field(ge=0, le=50)
     window_start: time
     window_end: time
-    min_seconds: int = Field(ge=3, le=60)
-    max_seconds: int = Field(ge=3, le=60)
 
     @model_validator(mode="after")
     def _check_ranges(self) -> "SettingsIn":
         if self.window_end <= self.window_start:
             raise ValueError("window_end must be after window_start")
-        if self.max_seconds < self.min_seconds:
-            raise ValueError("max_seconds must be >= min_seconds")
         return self
 
 
 class SettingsOut(SettingsIn):
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "extra": "forbid"}
 
 
 @settings_router.get("", response_model=SettingsOut)

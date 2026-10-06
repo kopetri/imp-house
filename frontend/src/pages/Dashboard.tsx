@@ -7,7 +7,6 @@ export default function Dashboard() {
   const { user } = useAuth()
   const [connected, setConnected] = useState<boolean | null>(null)
   const [schedule, setSchedule] = useState<ScheduledRecording[]>([])
-  const [seconds, setSeconds] = useState(15)
   const [message, setMessage] = useState<string | null>(null)
   const [streamKey, setStreamKey] = useState(0)
 
@@ -33,8 +32,8 @@ export default function Dashboard() {
   const recordNow = async () => {
     setMessage(null)
     try {
-      await api('/api/clips/record', { method: 'POST', body: { seconds } })
-      setMessage(`Recording ${seconds}s clip…`)
+      await api('/api/clips/record', { method: 'POST' })
+      setMessage('Capturing snapshot…')
     } catch (err) {
       setMessage((err as Error).message)
     }
@@ -57,17 +56,7 @@ export default function Dashboard() {
         </p>
         {user?.is_admin && (
           <div className="row">
-            <label className="inline">
-              Seconds
-              <input
-                type="number"
-                min={3}
-                max={60}
-                value={seconds}
-                onChange={(e) => setSeconds(Number(e.target.value))}
-              />
-            </label>
-            <button onClick={recordNow}>Record now</button>
+            <button onClick={recordNow}>Capture snapshot</button>
           </div>
         )}
         {message && <p className="muted">{message}</p>}
@@ -83,7 +72,6 @@ export default function Dashboard() {
               {schedule.map((entry) => (
                 <tr key={entry.id}>
                   <td>{formatDate(entry.scheduled_at)}</td>
-                  <td>{entry.duration_seconds}s</td>
                   <td>
                     <span className={`badge ${entry.status}`}>{entry.status}</span>
                   </td>

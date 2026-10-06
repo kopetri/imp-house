@@ -1,6 +1,7 @@
 import enum
 import uuid
 from datetime import date, datetime, time
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -81,10 +82,6 @@ class Prompt(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(100))
     text: Mapped[str] = mapped_column(Text)
-    model: Mapped[str] = mapped_column(String(200))
-    video_input_key: Mapped[str] = mapped_column(String(50), default="video")
-    prompt_input_key: Mapped[str] = mapped_column(String(50), default="prompt")
-    extra_input: Mapped[dict] = mapped_column(JSON, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -99,14 +96,20 @@ class Clip(Base):
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     duration_seconds: Mapped[float] = mapped_column(Float)
     status: Mapped[ClipStatus] = mapped_column(_enum(ClipStatus, "clip_status"), index=True)
-    original_path: Mapped[str] = mapped_column(String(500))
+    original_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    snapshot_path: Mapped[str | None] = mapped_column(String(500))
+    mask_path: Mapped[str | None] = mapped_column(String(500))
+    reference_path: Mapped[str | None] = mapped_column(String(500))
     thumbnail_path: Mapped[str] = mapped_column(String(500))
     prompt_id: Mapped[int | None] = mapped_column(ForeignKey("prompts.id", ondelete="SET NULL"))
     prompt_name: Mapped[str | None] = mapped_column(String(100))
     prompt_text: Mapped[str | None] = mapped_column(Text)
     model: Mapped[str | None] = mapped_column(String(200))
-    model_input: Mapped[dict | None] = mapped_column(JSON)
     provider_job_id: Mapped[str | None] = mapped_column(String(100))
+    provider_output: Mapped[Any] = mapped_column(JSON, nullable=True)
+    scene_prompt: Mapped[str | None] = mapped_column(Text)
+    mask_bbox: Mapped[dict | None] = mapped_column(JSON)
+    pipeline_stage: Mapped[str | None] = mapped_column(String(30))
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text)
     augmented_path: Mapped[str | None] = mapped_column(String(500))
@@ -127,8 +130,6 @@ class RecordingSettings(Base):
     clips_per_day: Mapped[int] = mapped_column(Integer, default=3)
     window_start: Mapped[time] = mapped_column(Time, default=time(8, 0))
     window_end: Mapped[time] = mapped_column(Time, default=time(20, 0))
-    min_seconds: Mapped[int] = mapped_column(Integer, default=10)
-    max_seconds: Mapped[int] = mapped_column(Integer, default=20)
 
 
 class ScheduledRecording(Base):
@@ -137,7 +138,6 @@ class ScheduledRecording(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     plan_date: Mapped[date] = mapped_column(Date, index=True)
     scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    duration_seconds: Mapped[int] = mapped_column(Integer)
     status: Mapped[ScheduleStatus] = mapped_column(_enum(ScheduleStatus, "schedule_status"))
     clip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("clips.id", ondelete="SET NULL"))
     error: Mapped[str | None] = mapped_column(Text)

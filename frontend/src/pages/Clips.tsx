@@ -61,7 +61,9 @@ export default function Clips() {
             <img src={`/api/clips/${clip.id}/thumb.jpg`} alt="" loading="lazy" />
             <div className="meta">
               <span>{formatDate(clip.recorded_at)}</span>
-              <span className="muted">{clip.prompt_name ?? 'no prompt'} · {Math.round(clip.duration_seconds)}s</span>
+              <span className="muted">
+                {clip.prompt_name ?? 'no prompt'} · {clip.duration_seconds > 0 ? `${Math.round(clip.duration_seconds)}s` : 'video pending'}
+              </span>
               <span className={`badge ${clip.status}`}>{clip.status}</span>
             </div>
           </Link>

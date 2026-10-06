@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -9,12 +8,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from imp_house.camera import CameraHub
-from imp_house.media import encode_jpegs_to_mp4
 from imp_house.models import Clip, ClipStatus, Prompt
 
 log = logging.getLogger(__name__)
 
 FRAME_TIMEOUT_SECONDS = 15.0
+GENERATED_VIDEO_SECONDS = 5
 
 
 class RecordingError(RuntimeError):
@@ -30,60 +29,51 @@ def queue_clip(clip: Clip, prompt: Prompt) -> None:
     clip.prompt_id = prompt.id
     clip.prompt_name = prompt.name
     clip.prompt_text = prompt.text
-    clip.model = prompt.model
-    clip.model_input = {
-        "video_input_key": prompt.video_input_key,
-        "prompt_input_key": prompt.prompt_input_key,
-        "extra_input": prompt.extra_input or {},
-    }
+    clip.model = None
     clip.provider_job_id = None
+    clip.provider_output = None
+    clip.scene_prompt = None
+    clip.mask_bbox = None
+    clip.pipeline_stage = "scene"
     clip.attempts = 0
     clip.error = None
     clip.augmented_path = None
     clip.playback_path = None
     clip.playback_fps = None
     clip.playback_frames = None
+    clip.mask_path = None
+    clip.reference_path = None
 
 
-async def capture_frames(hub: CameraHub, duration_seconds: float) -> tuple[list[bytes], float]:
-    frames: list[bytes] = []
+async def capture_snapshot(hub: CameraHub) -> bytes:
+    if hub.latest_frame is not None:
+        return hub.latest_frame
     async with hub.subscribe() as queue:
         try:
-            frames.append(await asyncio.wait_for(queue.get(), FRAME_TIMEOUT_SECONDS))
+            return await asyncio.wait_for(queue.get(), FRAME_TIMEOUT_SECONDS)
         except TimeoutError as exc:
             raise RecordingError("No frames received from camera") from exc
-        started = time.monotonic()
-        while (remaining := duration_seconds - (time.monotonic() - started)) > 0:
-            try:
-                frames.append(await asyncio.wait_for(queue.get(), min(remaining, FRAME_TIMEOUT_SECONDS)))
-            except TimeoutError:
-                if time.monotonic() - started < duration_seconds:
-                    raise RecordingError("Camera stopped delivering frames") from None
-                break
-        elapsed = time.monotonic() - started
-    if len(frames) < 2:
-        raise RecordingError("Too few frames recorded")
-    return frames, (len(frames) - 1) / elapsed
 
 
 async def record_clip(
-    hub: CameraHub, session: AsyncSession, data_dir: Path, duration_seconds: float, now: datetime
+    hub: CameraHub, session: AsyncSession, data_dir: Path, now: datetime
 ) -> Clip:
-    frames, fps = await capture_frames(hub, duration_seconds)
+    snapshot = await capture_snapshot(hub)
     clip_id = uuid.uuid4()
     relative_dir = Path("clips") / now.strftime("%Y-%m-%d") / str(clip_id)
     clip_dir = data_dir / relative_dir
     clip_dir.mkdir(parents=True, exist_ok=True)
-    (clip_dir / "thumb.jpg").write_bytes(frames[0])
-    await encode_jpegs_to_mp4(frames, fps, clip_dir / "original.mp4")
+    snapshot_path = relative_dir / "snapshot.jpg"
+    (data_dir / snapshot_path).write_bytes(snapshot)
 
     clip = Clip(
         id=clip_id,
         recorded_at=now,
-        duration_seconds=len(frames) / fps,
+        duration_seconds=GENERATED_VIDEO_SECONDS,
         status=ClipStatus.RECORDED,
-        original_path=str(relative_dir / "original.mp4"),
-        thumbnail_path=str(relative_dir / "thumb.jpg"),
+        original_path=None,
+        snapshot_path=str(snapshot_path),
+        thumbnail_path=str(snapshot_path),
         attempts=0,
     )
     prompt = await active_prompt(session)
@@ -91,5 +81,5 @@ async def record_clip(
         queue_clip(clip, prompt)
     session.add(clip)
     await session.commit()
-    log.info("Recorded clip %s (%d frames, %.1f fps)", clip_id, len(frames), fps)
+    log.info("Captured snapshot for clip %s", clip_id)
     return clip

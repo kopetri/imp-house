@@ -5,10 +5,6 @@ import { useAuth } from '../auth'
 const EMPTY: PromptInput = {
   name: '',
   text: '',
-  model: 'runwayml/gen4-aleph',
-  video_input_key: 'video',
-  prompt_input_key: 'prompt',
-  extra_input: {},
 }
 
 function PromptForm({
@@ -21,7 +17,6 @@ function PromptForm({
   onCancel: () => void
 }) {
   const [form, setForm] = useState<PromptInput>(initial ?? EMPTY)
-  const [extra, setExtra] = useState(JSON.stringify(initial?.extra_input ?? {}, null, 2))
   const [error, setError] = useState<string | null>(null)
 
   const update = (key: keyof PromptInput) => (e: { target: { value: string } }) =>
@@ -29,22 +24,10 @@ function PromptForm({
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    let extraInput: unknown
     try {
-      extraInput = JSON.parse(extra || '{}')
-    } catch {
-      setError('Extra input must be valid JSON')
-      return
-    }
-    if (!extraInput || typeof extraInput !== 'object' || Array.isArray(extraInput)) {
-      setError('Extra input must be a JSON object')
-      return
-    }
-    try {
-      const body = { ...form, extra_input: extraInput }
       await api(initial ? `/api/prompts/${initial.id}` : '/api/prompts', {
         method: initial ? 'PUT' : 'POST',
-        body,
+        body: form,
       })
       onSaved()
     } catch (err) {
@@ -60,34 +43,9 @@ function PromptForm({
         <input required maxLength={100} value={form.name} onChange={update('name')} />
       </label>
       <label>
-        Prompt
+        Character description
         <textarea required maxLength={4000} value={form.text} onChange={update('text')} />
       </label>
-      <label>
-        Replicate model (owner/name or owner/name:version)
-        <input required value={form.model} onChange={update('model')} />
-      </label>
-      <div className="row">
-        <label>
-          Video input key
-          <input required value={form.video_input_key} onChange={update('video_input_key')} />
-        </label>
-        <label>
-          Prompt input key
-          <input required value={form.prompt_input_key} onChange={update('prompt_input_key')} />
-        </label>
-      </div>
-      <label>
-        Extra input (JSON object)
-        <textarea className="code" value={extra} onChange={(e) => setExtra(e.target.value)} />
-      </label>
-      <p className="muted">
-        Input key names depend on the model&apos;s API schema, see e.g.{' '}
-        <a href="https://replicate.com/runwayml/gen4-aleph/api" target="_blank" rel="noreferrer">
-          runwayml/gen4-aleph
-        </a>
-        .
-      </p>
       {error && <p className="error">{error}</p>}
       <div className="row">
         <button>Save</button>
@@ -155,7 +113,6 @@ export default function Prompts() {
             <strong>{prompt.name}</strong>
             {prompt.is_active && <span className="badge active">active</span>}
             <span className="spacer" />
-            <span className="muted">{prompt.model}</span>
           </div>
           <pre className="prompt">{prompt.text}</pre>
           {isAdmin && (

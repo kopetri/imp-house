@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,7 +39,13 @@ class ClipOut(BaseModel):
     model: str | None
     attempts: int
     error: str | None
+    has_snapshot: bool
+    has_original: bool
+    has_mask: bool
+    has_reference: bool
     has_augmented: bool
+    scene_prompt: str | None
+    processing_stage: str | None
     playback_frames: int | None
 
     @classmethod
@@ -54,7 +60,13 @@ class ClipOut(BaseModel):
             model=clip.model,
             attempts=clip.attempts,
             error=clip.error,
+            has_snapshot=clip.snapshot_path is not None,
+            has_original=clip.original_path is not None,
+            has_mask=clip.mask_path is not None,
+            has_reference=clip.reference_path is not None,
             has_augmented=clip.augmented_path is not None,
+            scene_prompt=clip.scene_prompt,
+            processing_stage=clip.pipeline_stage,
             playback_frames=clip.playback_frames,
         )
 
@@ -64,14 +76,9 @@ class ClipPage(BaseModel):
     total: int
 
 
-class RecordRequest(BaseModel):
-    seconds: int = Field(default=15, ge=3, le=60)
-
-
 class ScheduledOut(BaseModel):
     id: int
     scheduled_at: datetime
-    duration_seconds: int
     status: str
     clip_id: uuid.UUID | None
     error: str | None
@@ -125,19 +132,18 @@ async def list_schedule(
 
 @clips_router.post("/record", status_code=status.HTTP_202_ACCEPTED)
 async def record_now(
-    body: RecordRequest,
     background: BackgroundTasks,
     _: User = Depends(current_admin),
     state: AppState = Depends(get_state),
 ) -> dict[str, str]:
     async def run() -> None:
         try:
-            await state.scheduler.record_now(body.seconds)
+            await state.scheduler.record_now()
         except Exception as exc:
             log.warning("Manual recording failed: %s", exc)
 
     background.add_task(run)
-    return {"status": "recording"}
+    return {"status": "capturing"}
 
 
 @clips_router.get("/{clip_id}", response_model=ClipOut)
@@ -158,6 +164,9 @@ async def clip_file(
     clip = await _get_clip(session, clip_id)
     files = {
         "original.mp4": (clip.original_path, "video/mp4"),
+        "snapshot.jpg": (clip.snapshot_path, "image/jpeg"),
+        "mask.png": (clip.mask_path, "image/png"),
+        "reference.jpg": (clip.reference_path, "image/jpeg"),
         "augmented.mp4": (clip.augmented_path, "video/mp4"),
         "thumb.jpg": (clip.thumbnail_path, "image/jpeg"),
     }
@@ -167,13 +176,15 @@ async def clip_file(
     return FileResponse(_safe_path(state, relative), media_type=media_type)
 
 
-@clips_router.post("/{clip_id}/augment", response_model=ClipOut)
-async def augment_clip(
+@clips_router.post("/{clip_id}/process", response_model=ClipOut)
+async def process_clip(
     clip_id: uuid.UUID, _: User = Depends(current_admin), session: AsyncSession = Depends(get_session)
 ) -> ClipOut:
     clip = await _get_clip(session, clip_id)
     if clip.status in (ClipStatus.QUEUED, ClipStatus.PROCESSING):
         raise HTTPException(status.HTTP_409_CONFLICT, "Clip is already being processed")
+    if not clip.snapshot_path:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Archived video clips cannot be processed")
     prompt = await active_prompt(session)
     if prompt is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No active prompt")
@@ -192,7 +203,8 @@ async def delete_clip(
     clip = await _get_clip(session, clip_id)
     if clip.status == ClipStatus.PROCESSING:
         raise HTTPException(status.HTTP_409_CONFLICT, "Clip is being processed")
-    clip_dir = (state.settings.data_dir / clip.original_path).resolve().parent
+    relative_path = clip.snapshot_path or clip.original_path or clip.thumbnail_path
+    clip_dir = (state.settings.data_dir / relative_path).resolve().parent
     await session.delete(clip)
     await session.commit()
     if clip_dir.is_relative_to(state.settings.data_dir / "clips"):
